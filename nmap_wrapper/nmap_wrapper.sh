@@ -8,12 +8,21 @@
 # https://github.com/honze-net/nmap-bootstrap-xsl
 # http://www.cheat-sheets.org/#NMAP
 
+# CHANGES ::
+# -- added $2 for user defined options
+# -- posibility to choose more than one option in second wizard's window
+# -- posibility to pipe nmap output to nikto
+
+# TODO ::
+# -- "install scripts" option doesnt remove tmp
+
+
 trap ctrl_c INT
 SCAN_PROFILE=""
-OPTIONS_PROFILE=""
 IGNORE_HOST_DOWN=0
 SCRIPT_PATH="/usr/share/nmap/scripts"
 START_TIME=$(date "+%Y-%m-%d_%H-%M-%S")
+COMMAND="nmap"
 
 # ctrl+c hook
 function ctrl_c() {
@@ -25,9 +34,10 @@ function ctrl_c() {
 # welcome message if invalid params are passed
 function hello {
 	echo
-	echo -ne "Usage: nmap_wrapper.sh <host>"
+	echo -ne "Usage: nmap_wrapper.sh <host> <options>"
 	echo
 	echo -ne "\n  host\t- IP address or domain name of the host target."
+	echo -ne "\n  options\t- any additional options like -p80,443."
 	echo
 	echo
 }
@@ -75,6 +85,7 @@ if [ -z "$1" ]; then
 	exit 1
 fi
 TARGET="$1"
+OPTIONS="$2"
 
 # check if host is up
 host "$TARGET" 2>&1 > /dev/null
@@ -131,7 +142,7 @@ if [ -z "$SCAN_PROFILE" ]; then
 	echo -e "\t\t-g 53\t\tsource-port"
 	echo -e "\t\t--script 'default or (discovery and safe)'"
 	#
-	echo -e "\t6. Ping scan"
+	echo -e "\t6. Ping sweep"
 	echo -e "\t\t-sn\t\tPing Scan - disable port scan"
 	#
 	echo -e "\t9. Install scripts"
@@ -158,29 +169,60 @@ if [ -z "$SCAN_PROFILE" ]; then
 	echo
 fi
 
-if [ ! -z "$SCAN_PROFILE" ]; then
-	if [ -z "$OPTIONS_PROFILE" ]; then
-		echo "[>] Please select scan type:"
-		#
-		echo -e "\t1. Scan for CVE"
-		#
-		echo -e "\t2. Create a report"
-		#
-		echo -e "\t3. Scan for CVE and Create a report"
-		
-		read -p "Please select an option: " m
-		
-		if [ $m -eq 0 ]; then exit 0;
-		elif [ $m -eq 1 ]; then OPTIONS_PROFILE="Scan for CVE"
-		elif [ $m -eq 2 ]; then OPTIONS_PROFILE="Create a report"
-		elif [ $m -eq 3 ]; then OPTIONS_PROFILE="Scan for CVE and Create a report"
-		else echo "[!] Unknown profile selected" && exit 1
-		fi
-		echo
-	fi
-fi
+CVE_SCAN=0
+MAKE_REPORT=0
+NIKTO_PIPE=0
+OPTIONS_DONE=0
 
-COMMAND="nmap"
+while [ "$OPTIONS_DONE" == "0" ]; do
+	echo "[>] Please select scan type:"
+	#
+	if [ "$CVE_SCAN" == "0" ]; then
+		echo -e "\t[ ]\t1. Scan for CVE"
+	else
+		echo -e "\t[${RED}x${ENDC}]\t1. Scan for CVE"
+	fi
+	#
+	if [ "$MAKE_REPORT" == "0" ]; then
+		echo -e "\t[ ]\t2. Create a report"
+	else
+		echo -e "\t[${RED}x${ENDC}]\t2. Create a report"
+	fi
+	#
+	if [ "$NIKTO_PIPE" == "0" ]; then
+		echo -e "\t[ ]\t3. Pipe to NIKTO"
+	else
+		echo -e "\t[${RED}x${ENDC}]\t3. Pipe to NIKTO"
+	fi
+	#
+	echo -e "\t\t0. Finish"
+	
+	read -p "Please select an option: " m
+	
+	if [ $m -eq 0 ]; then OPTIONS_DONE=1
+	elif [ $m -eq 1 ]; then 
+		if [ "$CVE_SCAN" == "0" ]; then
+			CVE_SCAN=1
+		else
+			CVE_SCAN=0
+		fi
+	elif [ $m -eq 2 ]; then 
+		if [ "$MAKE_REPORT" == "0" ]; then
+			MAKE_REPORT=1
+		else
+			MAKE_REPORT=0
+		fi
+	elif [ $m -eq 3 ]; then 
+		if [ "$NIKTO_PIPE" == "0" ]; then
+			NIKTO_PIPE=1
+		else
+			NIKTO_PIPE=0
+		fi
+	else echo "[!] Unknown profile selected" && exit 1
+	fi
+	echo
+done
+
 # run the COMMAND based on option
 if [ "$SCAN_PROFILE" == "Regular scan" ]; then
 	COMMAND+=""
@@ -213,27 +255,30 @@ fi
 if [ "$IGNORE_HOST_DOWN" == "1" ]; then
 	COMMAND+=" -Pn"
 fi
-if [ "$OPTIONS_PROFILE" == "Scan for CVE" ]; then
+if [ "$CVE_SCAN" == "1" ]; then
 	COMMAND+=" --script vulners,vulscan --script-args vulscandb=scipvuldb.csv -A --reason"
 fi
-if [ "$OPTIONS_PROFILE" == "Create a report" ]; then
+if [ "$MAKE_REPORT" == "1" ]; then
 	COMMAND+=" -oA scanme --stylesheet $SCRIPT_PATH/nmap-bootstrap-xsl/nmap-bootstrap.xsl"
 fi
-if [ "$OPTIONS_PROFILE" == "Scan for CVE and Create a report" ]; then
-	COMMAND+=" --script vulners,vulscan --script-args vulscandb=scipvuldb.csv -A --reason -oA scanme --stylesheet $SCRIPT_PATH/nmap-bootstrap-xsl/nmap-bootstrap.xsl"
+
+if [ ! -z "$OPTIONS" ]; then
+	COMMAND+=" $OPTIONS"
 fi
 
 COMMAND+=" $TARGET"
 
-echo "[+] Tasked: '$SCAN_PROFILE' scan against '$TARGET' "
-if [ ! -z "$OPTIONS_PROFILE" ]; then
-	echo "[+] In addition: '$OPTIONS_PROFILE'"
+# HAS TO BE LAST
+if [ "$NIKTO_PIPE" == "1" ]; then
+	COMMAND+=" -oG - | nikto -h -"
 fi
+
+echo "[+] Tasked: '$SCAN_PROFILE' scan against '$TARGET' "
 echo "[>] ..."
 
 # execute
 echo "[>] $COMMAND..."
-$COMMAND
+eval $COMMAND
 
 if [ -f "scanme.xml" ]; then
 	xsltproc -o scanme.html $SCRIPT_PATH/nmap-bootstrap-xsl/nmap-bootstrap.xsl scanme.xml
