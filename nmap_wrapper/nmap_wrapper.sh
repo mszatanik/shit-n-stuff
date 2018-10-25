@@ -15,6 +15,7 @@
 
 # TODO ::
 # -- "install scripts" option doesnt remove tmp
+# -- multiple runs fucks up reports - so we can create scanme file in the correct folder straight away
 
 
 trap ctrl_c INT
