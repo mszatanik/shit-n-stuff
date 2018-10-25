@@ -88,7 +88,7 @@ TARGET="$1"
 OPTIONS="$2"
 
 # check if host is up
-host "$TARGET" 2>&1 > /dev/null
+ping -c 1 "$TARGET" 2>&1 > /dev/null
 
 # if not ask user to continue, and set -Pn flag to the command by setting IGNORE_HOST_DOWN variable
 if [ $? -ne 0 ]; then
